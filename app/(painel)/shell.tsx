@@ -8,9 +8,9 @@ import { PanelProvider, RangePicker, usePanel } from '../components/ui'
 const NAV = [
   { href: '/dashboard', label: 'Dashboard' },
   { href: '/utms', label: 'UTMs' },
-  { href: '/anuncios', label: 'Anuncios' },
+  { href: '/anuncios', label: 'Anúncios' },
   { href: '/pedidos', label: 'Pedidos' },
-  { href: '/integracoes', label: 'Integracoes' },
+  { href: '/integracoes', label: 'Integrações' },
 ]
 
 function Header({ comPeriodo }: { comPeriodo: boolean }) {
@@ -51,7 +51,10 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           </nav>
         </aside>
 
-        <main className="flex-1 p-4 md:p-6 min-w-0">
+        <main className="flex-1 p-4 md:p-8 min-w-0 max-w-[1600px] mx-auto">
+          <nav aria-label="Navegação móvel" className="md:hidden flex flex-wrap gap-2 mb-6 border-b border-line pb-3">
+            {NAV.map(n => <Link key={n.href} href={n.href} className={`px-3 py-2 rounded-lg text-xs ${pathname === n.href ? 'bg-brand/15 text-brand' : 'text-muted'}`}>{n.label}</Link>)}
+          </nav>
           <Header comPeriodo={pathname !== '/integracoes'} />
           {children}
         </main>

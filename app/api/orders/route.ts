@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
     args.push(limit)
 
     const r = await db.execute({ sql, args })
-    return NextResponse.json({ currency, orders: r.rows })
+    return NextResponse.json({ currency, orders: r.rows.map((row) => ({ ...row, customer_name: null, customer_email: row.customer_email ? String(row.customer_email).replace(/^(.).*(@.*)$/, '$1***$2') : null })) })
   } catch (e) {
     return errorResponse(e)
   }

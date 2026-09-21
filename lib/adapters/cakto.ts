@@ -69,6 +69,8 @@ export function normalizeCakto(payload: any): NormalizedOrder | null {
     currency: 'BRL',
     grossCents: gross,
     netCents: net,
+    financialsKnown: commission != null,
+    grossKnown: pick(data, ['amount', 'baseAmount', 'total', 'offer.price']) != null,
 
     utms,
     clickIds,

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db, initDb, newId } from '@/lib/db'
+import { db, initDb, newId, dashboardExists } from '@/lib/db'
 import { enqueueCapi } from '@/lib/capi'
 
 export const runtime = 'nodejs'
@@ -23,16 +23,21 @@ const EVENT_TO_CAPI: Record<string, 'PageView' | 'InitiateCheckout' | 'Lead' | '
 }
 
 export async function POST(req: NextRequest) {
+  const allowed = (process.env.TRACKING_ALLOWED_ORIGINS || '').split(',').map(v => v.trim()).filter(Boolean)
+  if (!allowed.includes(req.headers.get('origin') || '')) return NextResponse.json({ ok: false, error: 'Origem não configurada' }, { status: 403, headers: CORS })
   let body: any
   try {
-    body = await req.json()
+    const raw = await req.text()
+    if (raw.length > 16000) return NextResponse.json({ ok: false }, { status: 413, headers: CORS })
+    body = JSON.parse(raw)
   } catch {
     return NextResponse.json({ ok: false }, { status: 400, headers: CORS })
   }
 
   const dashboardId = String(body?.dashboardId || '')
   const type = String(body?.type || '')
-  if (!dashboardId || !type) return NextResponse.json({ ok: false }, { status: 400, headers: CORS })
+  if (!dashboardId || !['page_view', 'initiate_checkout', 'lead', 'add_to_cart'].includes(type) || !body.eventId || !body.sessionId) return NextResponse.json({ ok: false }, { status: 400, headers: CORS })
+  if (!(await dashboardExists(dashboardId))) return NextResponse.json({ ok: false }, { status: 404, headers: CORS })
 
   await initDb()
 

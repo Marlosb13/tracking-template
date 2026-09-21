@@ -33,8 +33,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ platform: 
   }
 
   // Alguns gateways mandam um segredo no corpo ou no header.
+  if (!h.secret) return NextResponse.json({ ok: false, error: 'Configure o segredo do webhook' }, { status: 503 })
   if (h.secret) {
-    const got = req.headers.get('x-webhook-secret') || req.headers.get('authorization')?.replace(/^Bearer\s+/i, '') || payload?.secret
+    const got = req.headers.get('x-secret') || req.headers.get('x-webhook-secret') || req.headers.get('authorization')?.replace(/^Bearer\s+/i, '') || payload?.secret
     if (got !== h.secret) return NextResponse.json({ ok: false, error: 'segredo invalido' }, { status: 401 })
   }
 
@@ -50,30 +51,37 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ platform: 
   const result = await ingestOrder(h.dashboard_id, platform, order, payload)
 
   // Purchase server-side pros pixels do dashboard.
-  const wantPending = order.status === 'waiting_payment'
+  const saved = await db.execute({ sql: `SELECT * FROM orders WHERE id = ?`, args: [result.orderId] })
+  const persisted: any = saved.rows[0]
+  const visits = persisted.visitor_id ? await db.execute({ sql: `SELECT * FROM visits WHERE dashboard_id = ? AND visitor_id = ? AND julianday(created_at) <= julianday(?) ORDER BY created_at DESC LIMIT 1`, args: [h.dashboard_id, persisted.visitor_id, persisted.created_at] }) : null
+  const visit: any = visits?.rows[0]
   const pixels = await db.execute({
     sql: `SELECT * FROM pixels WHERE dashboard_id = ? AND enabled = 1`,
     args: [h.dashboard_id],
   })
   for (const p of pixels.rows as any[]) {
-    const sendsPending = p.send_purchase_type === 'paid_and_pending_sales'
-    if (order.status !== 'paid' && !(wantPending && sendsPending)) continue
+    if (order.status !== 'paid' || persisted.status !== 'paid') continue
+    if (p.send_value_type === 'commission' && !persisted.financials_known) continue
 
     const valueCents =
-      p.send_value_type === 'no_value' ? undefined : p.send_value_type === 'gross' ? order.grossCents : order.netCents
+      p.send_value_type === 'no_value' ? undefined : Number(p.send_value_type === 'gross' ? persisted.gross_cents : persisted.net_cents)
 
     await enqueueCapi(h.dashboard_id, String(p.id), {
       eventName: 'Purchase',
-      eventId: `${platform}-${order.externalId}`,
+      eventId: `${h.dashboard_id}-${platform}-${order.externalId}`,
       eventTime: Math.floor(new Date(order.approvedAt || order.createdAt).getTime() / 1000),
       valueCents,
       currency: order.currency || 'BRL',
-      email: order.customerEmail,
-      phone: order.customerPhone,
-      firstName: order.customerName?.split(' ')[0] ?? null,
+      email: persisted.customer_email,
+      phone: persisted.customer_phone,
+      firstName: persisted.customer_name?.split(' ')[0] ?? null,
       country: order.customerCountry,
-      ip: order.customerIp,
-      externalId: order.customerEmail,
+      ip: persisted.customer_ip || visit?.ip,
+      externalId: persisted.customer_email,
+      fbp: visit?.fbp,
+      fbc: visit?.fbc,
+      userAgent: visit?.user_agent,
+      sourceUrl: visit?.landing_url,
     })
   }
 

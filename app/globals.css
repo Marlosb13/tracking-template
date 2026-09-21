@@ -9,14 +9,14 @@
 :root {
   color-scheme: dark;
 
-  --ink:   #0a0a0b;  /* fundo */
-  --panel: #141416;  /* cartoes */
-  --line:  #26262b;  /* bordas */
-  --muted: #8d8d96;  /* texto secundario */
+  --ink:   #0a101b;
+  --panel: #111d2c;
+  --line:  #26364a;
+  --muted: #a2b2c8;
   --text:  #f4f1ec;  /* texto principal */
 
-  --brand: #ff6a00;  /* laranja da marca */
-  --good:  #ff8c42;  /* resultado positivo */
+  --brand: #7dd3fc;
+  --good:  #5ee4ac;
   --bad:   #f04438;  /* prejuizo, reembolso */
   --warn:  #fbbf24;  /* pendente */
 }
@@ -26,6 +26,14 @@ body {
   color: var(--text);
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
+
+button, input, select { min-height: 40px; }
+button, a, input, select { outline-offset: 4px; }
+:focus-visible { outline: 2px solid var(--brand); }
+.bg-panel { box-shadow: 0 8px 30px #00000012; }
+main { background: radial-gradient(ellipse at top right, #15354b33, transparent 55%); }
+@media (max-width: 480px) { input[type="date"] { max-width: 145px; } }
+@media (prefers-reduced-motion: no-preference) { button, a { transition: background-color .15s, border-color .15s; } }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 6px; }

@@ -29,6 +29,8 @@ export type NormalizedOrder = {
   currency?: string
   grossCents: number
   netCents: number
+  financialsKnown?: boolean
+  grossKnown?: boolean
   gatewayFeeCents?: number
 
   utms: Utms

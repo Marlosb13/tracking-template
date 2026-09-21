@@ -5,6 +5,7 @@ import { createContext, useContext, useEffect, useState } from 'react'
 /* ---------------- formatacao ---------------- */
 
 export function money(cents: number | null | undefined, currency = 'BRL') {
+  if (cents == null || !Number.isFinite(Number(cents))) return '—'
   const v = (Number(cents) || 0) / 100
   return v.toLocaleString(currency === 'BRL' ? 'pt-BR' : 'en-US', { style: 'currency', currency })
 }
@@ -15,6 +16,7 @@ export function pct(v: number | null | undefined, digits = 1) {
 }
 
 export function num(v: number | null | undefined) {
+  if (v == null) return '—'
   return (Number(v) || 0).toLocaleString('pt-BR')
 }
 
@@ -86,21 +88,24 @@ export function useQuery() {
 /* ---------------- componentes ---------------- */
 
 export function Card({ label, value, hint, tone }: { label: string; value: string; hint?: string; tone?: 'good' | 'bad' | 'neutral' }) {
+  const [collapsed, setCollapsed] = useState(false)
+  useEffect(() => { try { setCollapsed(localStorage.getItem(`card:${label}`) === '1') } catch {} }, [label])
   const color = tone === 'good' ? 'text-good' : tone === 'bad' ? 'text-bad' : 'text-white'
   return (
     <div className="bg-panel border border-line rounded-xl p-4">
-      <div className="text-muted text-xs uppercase tracking-wide">{label}</div>
-      <div className={`text-2xl font-semibold mt-1 ${color}`}>{value}</div>
-      {hint && <div className="text-muted text-xs mt-1">{hint}</div>}
+      <button className="text-muted text-xs tracking-wide flex justify-between gap-2 w-full text-left" aria-expanded={!collapsed} onClick={() => { setCollapsed(!collapsed); try { localStorage.setItem(`card:${label}`, collapsed ? '0' : '1') } catch {} }}>{label}<span aria-hidden>{collapsed ? '+' : '−'}</span></button>
+      {!collapsed && <><div className={`text-2xl font-semibold mt-3 tabular-nums ${color}`}>{value}</div>
+      {hint && <div className="text-muted text-xs mt-2">{hint}</div>}</>}
     </div>
   )
 }
 
 export function RangePicker() {
-  const { from, to, setRange } = usePanel()
+  const { from, to, setRange, dashboards, dashboardId } = usePanel()
 
   function preset(days: number) {
-    const end = new Date()
+    const end = new Date(`${todayLocal(Number(dashboards.find(d => d.id === dashboardId)?.tz_offset ?? -3))}T12:00:00Z`)
+    if (days === 0) { const yesterday = new Date(end.getTime() - 864e5).toISOString().slice(0, 10); setRange(yesterday, yesterday); return }
     const start = new Date(end.getTime() - (days - 1) * 864e5)
     setRange(start.toISOString().slice(0, 10), end.toISOString().slice(0, 10))
   }
@@ -114,7 +119,9 @@ export function RangePicker() {
              className="bg-panel border border-line rounded-lg px-3 py-1.5 text-sm" />
       {[
         ['Hoje', 1],
+        ['Ontem', 0],
         ['7 dias', 7],
+        ['14 dias', 14],
         ['30 dias', 30],
       ].map(([label, days]) => (
         <button key={label as string} onClick={() => preset(days as number)}
