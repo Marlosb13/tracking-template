@@ -1,0 +1,7 @@
+node_modules
+.next
+.env.local
+local.db
+local.db-*
+*.tsbuildinfo
+test-results/
