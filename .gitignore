@@ -3,3 +3,5 @@ node_modules
 .env.local
 local.db
 local.db-*
+*.tsbuildinfo
+test-results/

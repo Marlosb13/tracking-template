@@ -109,7 +109,8 @@
   }
   setCookie(VISITOR, visitorId, 365)
 
-  var sessionId = sessionStorage.getItem(SESSION)
+  var sessionId = null
+  try { sessionId = sessionStorage.getItem(SESSION) } catch (e) {}
   if (!sessionId) {
     sessionId = uuid()
     try {
@@ -152,7 +153,7 @@
      pixel ainda nao rodou, a gente monta o _fbc pra nao perder a atribuicao. */
   var fbp = getCookie('_fbp')
   var fbc = getCookie('_fbc')
-  if (!fbc && attr.fbclid) {
+    if (attr.fbclid && (!fbc || fbc.split('.').slice(3).join('.') !== attr.fbclid)) {
     fbc = 'fb.1.' + Date.now() + '.' + attr.fbclid
     setCookie('_fbc', fbc, 90)
   }
@@ -181,6 +182,8 @@
       return href
     }
     if (u.protocol !== 'http:' && u.protocol !== 'https:') return href
+    var allowed = (tag.getAttribute('data-checkout-hosts') || '').split(',').map(function (h) { return h.trim() }).filter(Boolean)
+    if (u.hostname !== location.hostname && allowed.indexOf(u.hostname) === -1) return href
 
     var add = paramsToAppend()
     Object.keys(add).forEach(function (k) {
@@ -214,7 +217,10 @@
         for (var i = 0; i < muts.length; i++) {
           var added = muts[i].addedNodes
           for (var j = 0; j < added.length; j++) {
-            if (added[j].nodeType === 1) decorateAll(added[j])
+            if (added[j].nodeType === 1) {
+              if (added[j].matches && added[j].matches('a[href]')) added[j].setAttribute('href', decorate(added[j].getAttribute('href')))
+              decorateAll(added[j])
+            }
           }
         }
       }).observe(document.documentElement, { childList: true, subtree: true })
@@ -233,8 +239,8 @@
       referrer: document.referrer || null,
       landing: attr.landing || null,
       eventId: uuid(),
-      fbp: fbp || null,
-      fbc: fbc || null,
+      fbp: getCookie('_fbp') || fbp || null,
+      fbc: getCookie('_fbc') || fbc || null,
       utms: {
         src: attr.src || null,
         sck: attr.sck || null,
@@ -254,8 +260,7 @@
     var endpoint = ENDPOINT + '/api/collect'
     try {
       if (navigator.sendBeacon) {
-        navigator.sendBeacon(endpoint, new Blob([json], { type: 'application/json' }))
-        return
+        if (navigator.sendBeacon(endpoint, new Blob([json], { type: 'text/plain;charset=UTF-8' }))) return
       }
     } catch (e) {}
     fetch(endpoint, { method: 'POST', body: json, headers: { 'Content-Type': 'application/json' }, keepalive: true, mode: 'cors' }).catch(

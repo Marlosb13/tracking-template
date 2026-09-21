@@ -4,44 +4,63 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Card, money, num, pct, ratio, usePanel, useQuery } from '../../components/ui'
+import { demoSummary } from '@/lib/demo'
 
 export default function DashboardPage() {
   const query = useQuery()
   const { currency } = usePanel()
-  const [data, setData] = useState<any>(null)
+  const [liveData, setData] = useState<any>(null)
+  const [demo, setDemo] = useState(false)
+  const [refresh, setRefresh] = useState(0)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     if (!query) return
     setLoading(true)
-    fetch(`/api/metrics/summary?${query}`)
-      .then((r) => r.json())
+    const controller = new AbortController()
+    fetch(`/api/metrics/summary?${query}`, { signal: controller.signal })
+      .then((r) => { if (!r.ok) throw new Error('Não foi possível carregar os dados. Tente novamente.'); return r.json() })
       .then(setData)
-      .finally(() => setLoading(false))
-  }, [query])
+      .catch(e => { if (e.name !== 'AbortError') setData({ error: e.message }) })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false) })
+    return () => controller.abort()
+  }, [query, refresh])
+
+  const data: any = demo ? demoSummary : liveData
 
   if (loading || !data) return <p className="text-muted">Carregando...</p>
-  if (data.error) return <p className="text-bad">{data.error}</p>
+  if (data.error) return <div role="alert" className="text-bad">{data.error} <button onClick={() => setRefresh(v => v + 1)}>Tentar novamente</button></div>
 
   const o = data.ordersCount
-  const vazio = o.total === 0 && data.spend === 0
+  const vazio = o.total === 0 && !data.hasSpendData
 
   return (
     <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div><p className="text-brand text-xs tracking-[.2em] uppercase mb-2">Visão da operação</p><h1 className="text-3xl font-semibold tracking-tight">Seu tráfego, com clareza.</h1><p className="text-muted text-sm mt-2">Pagamentos confirmados. Origem identificada. Decisões com contexto.</p></div>
+        <div className="flex gap-2"><button className="border border-line rounded-lg px-4 text-sm" onClick={() => setDemo(v => !v)}>{demo ? 'Voltar aos dados reais' : 'Ver demonstração'}</button><button className="bg-brand text-slate-950 rounded-lg px-4 text-sm font-semibold" onClick={() => setRefresh(v => v + 1)}>Atualizar</button></div>
+      </div>
+      {demo && <div role="status" className="border border-brand rounded-xl p-4 text-brand text-sm">DEMONSTRAÇÃO · Números fictícios para avaliar o layout. Nenhum evento é enviado e nenhuma venda é gravada.</div>}
+      {data.unknownFinancials > 0 && <div role="status" className="border border-warn rounded-xl p-4 text-warn text-sm">{data.unknownFinancials} pagamento(s) sem valor líquido confirmado. Receita líquida e retorno ficam indisponíveis até receber os valores do checkout.</div>}
+      {!demo && !data.hasSpendData && <div className="border border-line rounded-xl p-4 text-muted text-sm">Sem dados de investimento neste período. ROAS, CPA e resultado ficam indisponíveis até a sincronização da Meta.</div>}
+      <section className="rounded-2xl border border-line bg-gradient-to-br from-sky-900/30 to-panel p-6 md:p-8 flex flex-wrap justify-between gap-6">
+        <div><p className="text-muted text-sm">Retorno sobre investimento em mídia</p><p className="text-5xl font-semibold tracking-tight mt-3 text-brand">{data.hasSpendData ? ratio(data.roas) : '—'}<span className="text-lg text-muted ml-2">ROAS</span></p><p className="text-muted text-sm mt-4">Receita líquida ÷ gasto de mídia. Custos adicionais não entram neste indicador.</p></div>
+        <div className="max-w-sm self-center"><p className="text-sm">{!data.hasSpendData || data.roas == null ? 'Conecte suas fontes para começar a comparar.' : data.roas >= 1 ? 'A receita líquida cobre o gasto em mídia.' : 'O gasto em mídia supera a receita líquida.'}</p><p className="text-muted text-xs mt-3">O resultado abaixo também desconta os custos cadastrados. Vendas sem origem permanecem visíveis.</p></div>
+      </section>
       {vazio && <PrimeiroUso />}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Card label="Faturamento liquido" value={money(data.revenue, currency)} hint={`bruto ${money(data.grossRevenue, currency)}`} />
-        <Card label="Gastos com anuncios" value={money(data.spend, currency)} />
-        <Card label="Lucro" value={money(data.profit, currency)} tone={data.profit >= 0 ? 'good' : 'bad'}
+        <Card label="Gastos com anúncios" value={money(data.hasSpendData ? data.spend : null, currency)} />
+        <Card label="Resultado registrado" value={money(data.hasSpendData ? data.profit : null, currency)} tone={data.hasSpendData && data.profit >= 0 ? 'good' : 'neutral'}
               hint={`margem ${pct(data.margin)}`} />
-        <Card label="ROAS" value={ratio(data.roas)} hint={`ROI ${data.roi == null ? '—' : pct(data.roi, 0)}`} />
+        <Card label="ROAS" value={ratio(data.hasSpendData ? data.roas : null)} hint="Receita líquida / mídia" />
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Card label="Vendas aprovadas" value={num(o.approved)} hint={`${num(o.total)} no total`} />
         <Card label="Pendentes" value={num(o.pending)} hint={money(data.pendingRevenue, currency)} />
         <Card label="Ticket medio" value={money(data.averageTicket, currency)} />
-        <Card label="CPA" value={data.cpa == null ? '—' : money(data.cpa, currency)}
+        <Card label="CPA" value={!data.hasSpendData || data.cpa == null ? '—' : money(data.cpa, currency)}
               hint={`CPT ${data.cpt == null ? '—' : money(data.cpt, currency)}`} />
       </div>
 
