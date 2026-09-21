@@ -11,7 +11,7 @@ const base = () => process.env.NEXT_PUBLIC_URL || 'http://localhost:3210'
 function urlsFor(platform: string, id: string) {
   const root = `${base()}/api/webhooks/${platform}?id=${id}`
   const urls = [{ title: 'URL padrao', url: root }]
-  if (platform === 'kirvano' || platform === 'hotmart' || platform === 'cakto') {
+  if (platform === 'kirvano' || platform === 'hotmart' || platform === 'cakto' || platform === 'ggcheckout') {
     urls.push(
       { title: 'URL para afiliados', url: `${root}&saleType=affiliate` },
       { title: 'URL para co-produtores', url: `${root}&saleType=co-producer` },

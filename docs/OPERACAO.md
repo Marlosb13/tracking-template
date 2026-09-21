@@ -10,6 +10,15 @@
 6. Cadastre um segredo no webhook. O endpoint aceita `x-webhook-secret`, Bearer ou `secret` no corpo. A assinatura específica do checkout será implementada e validada com sua documentação.
 7. Os crons exigem `x-cron-secret`; não aceitam segredo na URL. Sincronize Meta a cada 30 minutos e processe CAPI a cada 1–5 minutos.
 
+## Conectar GGCheckout
+
+1. Em **Integrações → Webhooks**, selecione **GGCheckout**, informe um nome e crie um Secret longo. O painel gera uma URL no formato `/api/webhooks/ggcheckout?id=...`.
+2. No GGCheckout, abra a configuração de webhooks e cole essa URL. Informe exatamente o mesmo Secret. O GG envia `Authorization: Bearer <secret>` e `x-secret: <secret>`; o dashboard valida ambos.
+3. Habilite pelo menos `pix.paid`, `card.paid`, `pix.generated`, `card.pending`, `pix.refunded`, `card.refunded` e os eventos de falha/expiração que a conta disponibilizar. O endpoint responde de forma idempotente a reentregas pelo ID do pagamento.
+4. O adaptador lê `payment.id`, `payment.amount`, método, gateway, cliente, produto/order bumps, data, IP e `utm_*`. `payment.amount` é tratado como valor bruto em reais; o preço inteiro de um bump, como `2700`, é tratado como centavos conforme o exemplo oficial.
+5. O GG não informa no payload documentado a comissão líquida final do produtor. Por isso o dashboard registra o bruto, marca o líquido como indisponível e não fabrica ROAS/CPA. Depois que você enviar a documentação da API ou confirmar como obter taxa, gateway e líquido, adicionaremos a reconciliação. Se precisar enviar CAPI antes disso, selecione valor bruto conscientemente.
+6. Não use o endpoint genérico junto com o de GG para o mesmo produto: isso duplicaria pedidos. Faça um teste com uma venda de baixo valor e confira `payment.id`, status, produto, bump, UTMs e o registro no painel.
+
 ## Contrato de atribuição
 
 Mantenha o contrato exibido em Integrações: `utm_campaign=nome|id`, `utm_medium=conjunto|id`, `utm_content=anúncio|id`. IDs fazem o vínculo com o gasto; nomes são apenas rótulos. Links também levam `rt_vid`. A recuperação por visitante é limitada a visitas anteriores ao pedido nos últimos 30 dias. Sem evidência de origem, a venda fica `unattributed`, nunca automaticamente orgânica.

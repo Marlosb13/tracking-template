@@ -7,6 +7,7 @@ const PLATFORMS = [
   { id: 'kirvano', label: 'Kirvano' },
   { id: 'cakto', label: 'Cakto' },
   { id: 'hotmart', label: 'Hotmart' },
+  { id: 'ggcheckout', label: 'GGCheckout' },
   { id: 'generic', label: 'Generico' },
 ]
 
@@ -108,6 +109,7 @@ function WebhooksTab({ dashboardId }: { dashboardId: string }) {
   const [items, setItems] = useState<any[]>([])
   const [platform, setPlatform] = useState('kirvano')
   const [name, setName] = useState('')
+  const [secret, setSecret] = useState('')
 
   const load = () =>
     fetch(`/api/integrations/webhooks?dashboardId=${dashboardId}`)
@@ -122,15 +124,16 @@ function WebhooksTab({ dashboardId }: { dashboardId: string }) {
     await fetch('/api/integrations/webhooks', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ dashboardId, platform, name: name || undefined }),
+      body: JSON.stringify({ dashboardId, platform, name: name || undefined, secret: secret || undefined }),
     })
     setName('')
+    setSecret('')
     load()
   }
 
   return (
     <div className="space-y-4">
-      <Box title="Novo webhook" hint="Cria a URL que voce cola no painel do gateway.">
+      <Box title="Novo webhook" hint="Cria a URL que você cola no painel do gateway. Para GGCheckout, informe o mesmo Secret nos dois lugares.">
         <div className="flex flex-wrap gap-2">
           <select value={platform} onChange={(e) => setPlatform(e.target.value)}
                   className="bg-ink border border-line rounded-lg px-3 py-2 text-sm">
@@ -140,6 +143,8 @@ function WebhooksTab({ dashboardId }: { dashboardId: string }) {
           </select>
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Apelido (opcional)"
                  className="bg-ink border border-line rounded-lg px-3 py-2 text-sm flex-1 min-w-[180px]" />
+          <input value={secret} onChange={(e) => setSecret(e.target.value)} placeholder="Secret do webhook"
+                 className="bg-ink border border-line rounded-lg px-3 py-2 text-sm flex-1 min-w-[180px]" type="password" />
           <button onClick={create} className="bg-brand rounded-lg px-4 py-2 text-sm font-medium">Criar</button>
         </div>
       </Box>

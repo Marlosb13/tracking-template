@@ -35,7 +35,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ platform: 
   // Alguns gateways mandam um segredo no corpo ou no header.
   if (!h.secret) return NextResponse.json({ ok: false, error: 'Configure o segredo do webhook' }, { status: 503 })
   if (h.secret) {
-    const got = req.headers.get('x-webhook-secret') || req.headers.get('authorization')?.replace(/^Bearer\s+/i, '') || payload?.secret
+    const got = req.headers.get('x-secret') || req.headers.get('x-webhook-secret') || req.headers.get('authorization')?.replace(/^Bearer\s+/i, '') || payload?.secret
     if (got !== h.secret) return NextResponse.json({ ok: false, error: 'segredo invalido' }, { status: 401 })
   }
 

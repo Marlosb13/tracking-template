@@ -12,6 +12,7 @@ const { ingestOrder } = require('../lib/orders.ts')
 const { enqueueCapi, flushCapiQueue } = require('../lib/capi.ts')
 const { getSummary, buildRange } = require('../lib/metrics.ts')
 const { parseAdRef } = require('../lib/utm.ts')
+const { normalizeGgCheckout } = require('../lib/adapters/ggcheckout.ts')
 async function main() {
   await initDb()
   await db.execute("INSERT INTO dashboards (id,name) VALUES ('test','Test')")
@@ -29,6 +30,8 @@ async function main() {
   assert.equal(summary.hasSpendData, false)
   assert.equal(parseAdRef({}).trafficSource, 'unattributed')
   assert.doesNotThrow(() => parseAdRef({ utm_content: 'Oferta 50%|12345678' }))
+  const gg = normalizeGgCheckout({ event: 'pix.paid', createdAt: '2026-09-21T01:00:00Z', customer: { name: 'João', email: 'joao@example.com', ip: '2001:db8::1' }, payment: { id: 'gg-order-1', paymentMethod: 'pix', status: 'paid', amount: 97 }, product: { id: 'p1', type: 'main', title: 'Produto' }, products: [{ id: 'p1', type: 'main', title: 'Produto' }, { id: 'b1', type: 'orderbump', title: 'Bump', price: 2700 }], utm_source: 'facebook', utm_campaign: 'Campanha|12345678', utm_medium: 'Conjunto|123456789', utm_content: 'Anúncio|1234567890' })
+  assert.equal(gg.status, 'paid'); assert.equal(gg.externalId, 'gg-order-1'); assert.equal(gg.grossCents, 9700); assert.equal(gg.items[1].priceCents, 2700); assert.equal(gg.financialsKnown, false)
   await db.execute("INSERT INTO pixels (id,dashboard_id,name) VALUES ('pixel','test','Test')")
   const event = { eventName: 'Purchase', eventId: 'order-1', eventTime: 1 }
   await Promise.all([enqueueCapi('test', 'pixel', event), enqueueCapi('test', 'pixel', event)])
