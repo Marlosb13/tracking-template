@@ -49,6 +49,8 @@ export function normalizeKirvano(payload: any): NormalizedOrder | null {
     currency: 'BRL',
     grossCents: gross,
     netCents: net,
+    financialsKnown: commission != null,
+    grossKnown: pick(payload, ['total_price', 'total', 'amount']) != null,
 
     utms,
     clickIds,

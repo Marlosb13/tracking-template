@@ -27,8 +27,9 @@ export type CapiEvent = {
 export async function enqueueCapi(dashboardId: string, pixelId: string, event: CapiEvent) {
   await initDb()
   await db.execute({
-    sql: `INSERT INTO capi_queue (id, dashboard_id, pixel_id, event_name, payload) VALUES (?,?,?,?,?)`,
-    args: [newId(), dashboardId, pixelId, event.eventName, JSON.stringify(event)],
+    sql: `INSERT OR IGNORE INTO capi_queue (id, dashboard_id, pixel_id, event_name, payload)
+          SELECT ?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM capi_queue WHERE dashboard_id = ? AND pixel_id = ? AND event_name = ? AND json_extract(payload, '$.eventId') = ?)`,
+    args: [sha256(JSON.stringify([dashboardId, pixelId, event.eventName, event.eventId])), dashboardId, pixelId, event.eventName, JSON.stringify(event), dashboardId, pixelId, event.eventName, event.eventId],
   })
 }
 
@@ -91,8 +92,8 @@ export async function flushCapiQueue(limit = 100) {
     const event: CapiEvent = JSON.parse(row.payload)
     const data = buildPayload(event, p.send_ip_rule)
 
-    let ok = true
-    let error = ''
+    let ok = targets.rows.some((t: any) => Boolean(t.capi_token))
+    let error = ok ? '' : 'Nenhum destino com token configurado'
     for (const t of targets.rows as any[]) {
       if (!t.capi_token) continue
       try {

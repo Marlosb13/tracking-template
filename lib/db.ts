@@ -12,6 +12,8 @@ export function newId() {
 }
 
 const SCHEMA = [
+  `CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT (datetime('now')))`,
+  `CREATE TABLE IF NOT EXISTS webhook_events (id TEXT PRIMARY KEY, dashboard_id TEXT NOT NULL, platform TEXT NOT NULL, external_id TEXT NOT NULL, status TEXT NOT NULL, raw TEXT NOT NULL, received_at TEXT NOT NULL DEFAULT (datetime('now')))`,
   /* Um "dashboard" e o workspace: agrupa pedidos, contas de anuncio e integracoes.
      Da pra ter varios (um por negocio, um por moeda) e trocar no seletor do topo. */
   `CREATE TABLE IF NOT EXISTS dashboards (
@@ -267,6 +269,10 @@ export function initDb() {
   if (!ready) {
     ready = (async () => {
       for (const sql of SCHEMA) await db.execute(sql)
+      await db.execute(`INSERT OR IGNORE INTO schema_migrations (version) VALUES (1)`)
+      const columns = await db.execute('PRAGMA table_info(orders)')
+      if (!columns.rows.some(c => c.name === 'financials_known')) await db.execute('ALTER TABLE orders ADD COLUMN financials_known INTEGER NOT NULL DEFAULT 0')
+      await db.execute(`INSERT OR IGNORE INTO schema_migrations (version) VALUES (2)`)
     })().catch((e) => {
       ready = null
       throw e

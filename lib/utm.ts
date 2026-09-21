@@ -15,7 +15,7 @@
  * arranca o id de dentro e cruza com o gasto que veio da API da plataforma.
  */
 
-export type TrafficSource = 'meta' | 'google' | 'tiktok' | 'kwai' | 'organic' | 'other'
+export type TrafficSource = 'meta' | 'google' | 'tiktok' | 'kwai' | 'organic' | 'other' | 'unattributed'
 
 export type Utms = {
   src?: string | null
@@ -43,7 +43,8 @@ const ID_RE = /^\d{6,}$/
 /** "Campanha Frio 01|120210987654320123" -> { name, id } */
 export function splitNameId(value?: string | null): { name: string | null; id: string | null } {
   if (!value) return { name: null, id: null }
-  const raw = decodeURIComponent(String(value).replace(/\+/g, ' ')).trim()
+  let raw = String(value).trim()
+  try { raw = decodeURIComponent(raw) } catch { /* Preserve malformed values for inspection. */ }
   if (!raw) return { name: null, id: null }
 
   const cut = raw.lastIndexOf('|')
@@ -69,7 +70,7 @@ export function detectTrafficSource(utms: Utms, clickIds?: { fbclid?: string | n
   if (/\b(google|adwords|gads|youtube|yt)\b/.test(s)) return 'google'
   if (/\b(tiktok|tt|ttads)\b/.test(s)) return 'tiktok'
   if (/\b(kwai|kwaiads)\b/.test(s)) return 'kwai'
-  if (!s) return 'organic'
+  if (!s) return 'unattributed'
   return 'other'
 }
 

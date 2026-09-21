@@ -14,6 +14,21 @@ import type { NormalizedOrder } from './adapters'
 export async function ingestOrder(dashboardId: string, platform: string, order: NormalizedOrder, raw: unknown) {
   await initDb()
 
+  if (!order.externalId || !['waiting_payment', 'paid', 'refused', 'refunded', 'chargedback'].includes(order.status)) throw new Error('Pedido inválido')
+  await db.execute({ sql: `INSERT INTO webhook_events (id, dashboard_id, platform, external_id, status, raw) VALUES (?,?,?,?,?,?)`, args: [newId(), dashboardId, platform, order.externalId, order.status, JSON.stringify(raw)] })
+  const existing = await db.execute({ sql: `SELECT * FROM orders WHERE dashboard_id = ? AND platform = ? AND external_id = ?`, args: [dashboardId, platform, order.externalId] })
+  const previous: any = existing.rows[0]
+  if (previous && order.grossKnown === false) order.grossCents = Number(previous.gross_cents)
+  if (previous && order.financialsKnown === false) order.netCents = Number(previous.net_cents)
+  if (order.items.every(i => i.productName === 'Sem nome')) order.items = []
+  if (previous && ((['refunded', 'chargedback'].includes(previous.status) && !['refunded', 'chargedback'].includes(order.status)) || (previous.status === 'paid' && ['waiting_payment', 'refused'].includes(order.status)))) {
+    return { orderId: String(previous.id), trafficSource: previous.traffic_source, adId: previous.ad_id, campaignId: previous.campaign_id }
+  }
+  if (previous && ['refunded', 'chargedback'].includes(order.status)) {
+    order.grossCents = Number(previous.gross_cents)
+    order.netCents = Number(previous.net_cents)
+  }
+
   let utms: Utms = order.utms || {}
   let clickIds = order.clickIds || {}
 
@@ -22,8 +37,9 @@ export async function ingestOrder(dashboardId: string, platform: string, order: 
     const v = await db.execute({
       sql: `SELECT src, sck, utm_source, utm_medium, utm_campaign, utm_content, utm_term, fbclid, gclid, ttclid
             FROM visits WHERE dashboard_id = ? AND visitor_id = ?
+            AND julianday(created_at) <= julianday(?) AND julianday(created_at) >= julianday(?) - 30
             ORDER BY created_at DESC LIMIT 1`,
-      args: [dashboardId, order.visitorId],
+      args: [dashboardId, order.visitorId, order.createdAt, order.createdAt],
     })
     const row: any = v.rows[0]
     if (row) {
@@ -91,8 +107,15 @@ export async function ingestOrder(dashboardId: string, platform: string, order: 
             created_at, approved_at, refunded_at, updated_at, raw
           ) VALUES (?,?,?,?,?,?,?,?,?, ?,?,?,?,?,?, ?,?,?,?,?,?, ?,?,?,?,?,?,?, ?,?,?,?,?,?, ?,?,?, datetime('now'), ?)
           ON CONFLICT (dashboard_id, platform, external_id) DO UPDATE SET
-            status = excluded.status,
+            status = CASE
+              WHEN orders.status IN ('refunded', 'chargedback') THEN orders.status
+              WHEN orders.status = 'paid' AND excluded.status IN ('waiting_payment', 'refused') THEN orders.status
+              ELSE excluded.status END,
             payment_method = COALESCE(excluded.payment_method, orders.payment_method),
+            customer_name = COALESCE(excluded.customer_name, orders.customer_name),
+            customer_email = COALESCE(excluded.customer_email, orders.customer_email),
+            customer_phone = COALESCE(excluded.customer_phone, orders.customer_phone),
+            customer_ip = COALESCE(excluded.customer_ip, orders.customer_ip),
             gross_cents = excluded.gross_cents,
             net_cents = excluded.net_cents,
             tax_cents = excluded.tax_cents,
@@ -108,7 +131,7 @@ export async function ingestOrder(dashboardId: string, platform: string, order: 
             utm_campaign = COALESCE(orders.utm_campaign, excluded.utm_campaign),
             utm_content  = COALESCE(orders.utm_content, excluded.utm_content),
             utm_term     = COALESCE(orders.utm_term, excluded.utm_term),
-            traffic_source = COALESCE(orders.traffic_source, excluded.traffic_source),
+            traffic_source = CASE WHEN orders.ad_id IS NULL AND orders.campaign_id IS NULL THEN excluded.traffic_source ELSE orders.traffic_source END,
             account_id   = COALESCE(orders.account_id, excluded.account_id),
             campaign_id  = COALESCE(orders.campaign_id, excluded.campaign_id),
             adset_id     = COALESCE(orders.adset_id, excluded.adset_id),
@@ -136,18 +159,20 @@ export async function ingestOrder(dashboardId: string, platform: string, order: 
     args: [dashboardId, platform, order.externalId],
   })
   const orderId = String((found.rows[0] as any).id)
+  await db.execute({ sql: `UPDATE orders SET financials_known = MAX(financials_known, ?) WHERE id = ?`, args: [order.financialsKnown === false ? 0 : 1, orderId] })
 
-  await db.execute({ sql: `DELETE FROM order_items WHERE order_id = ?`, args: [orderId] })
-  for (const item of order.items) {
-    await db.execute({
+  // A partial status notification must never erase previously received items.
+  if (order.items.length) await db.batch([
+    { sql: `DELETE FROM order_items WHERE order_id = ?`, args: [orderId] },
+    ...order.items.map((item) => ({
       sql: `INSERT INTO order_items (id, order_id, dashboard_id, product_id, product_name, plan_name, quantity, price_cents, is_bump)
             VALUES (?,?,?,?,?,?,?,?,?)`,
       args: [
         newId(), orderId, dashboardId, item.productId ?? null, item.productName, item.planName ?? null,
         item.quantity ?? 1, item.priceCents ?? 0, item.isBump ? 1 : 0,
       ],
-    })
-  }
+    })),
+  ], 'write')
 
   return { orderId, trafficSource: ref.trafficSource, adId, campaignId }
 }

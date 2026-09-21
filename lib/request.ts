@@ -5,6 +5,7 @@ import { buildRange, type Filters, type Range } from './metrics'
 /** Le dashboardId + periodo + filtros da querystring. */
 export async function readContext(req: NextRequest): Promise<{ dashboardId: string; range: Range; filters: Filters; tzOffset: number; currency: string }> {
   const q = req.nextUrl.searchParams
+  if (q.get('products') || q.get('platforms') || q.get('accounts') || q.get('trafficSource')) throw new Response('Filtros parciais indisponíveis até configurar o vínculo entre ofertas e gastos.', { status: 400 })
   const dashboardId = q.get('dashboardId') || ''
   if (!dashboardId) throw new Response('dashboardId ausente', { status: 400 })
   if (!(await dashboardExists(dashboardId))) throw new Response('dashboard nao encontrado', { status: 404 })

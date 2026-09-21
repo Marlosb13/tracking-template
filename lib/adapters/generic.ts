@@ -46,6 +46,8 @@ export function normalizeGeneric(payload: any): NormalizedOrder | null {
     currency: (pick(payload, ['currency']) as string) ?? 'BRL',
     grossCents: gross,
     netCents: netRaw != null ? toCents(netRaw) : gross,
+    financialsKnown: netRaw != null,
+    grossKnown: pick(payload, ['gross', 'total', 'amount', 'value', 'data.amount']) != null,
 
     utms,
     clickIds,

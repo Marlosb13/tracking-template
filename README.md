@@ -3,13 +3,12 @@
 Tracking e atribuicao de vendas para trafego pago. Liga o gasto do anuncio a
 venda do gateway e mostra lucro real por campanha, conjunto e anuncio.
 
-Template limpo: sobe sem nenhum dado e sem tela de login. Abriu, ja esta dentro —
-o dashboard padrao se cria sozinho no primeiro acesso.
+Template sem dados iniciais. O painel e suas APIs exigem autenticação HTTP Basic
+com `PANEL_USER` e `PANEL_PASSWORD` (mínimo 16 caracteres). Use HTTPS em produção.
+Sem senha configurada, o painel retorna 503 e permanece fechado.
+O dashboard padrão é criado no primeiro acesso autenticado.
 
-> **Nao tem autenticacao.** Quem alcancar a URL ve o faturamento. Roda local ou
-> atras de algo que ja protege (rede interna, tunel, Basic Auth do proxy,
-> protecao de deploy da Vercel). Se for expor na internet aberta, ponha uma
-> camada de acesso antes.
+Veja [as melhorias, configuração e limites](docs/OPERACAO.md) antes de integrar um checkout.
 
 ## Como funciona
 
@@ -68,7 +67,7 @@ npm run dev                  # http://localhost:3210
 ```
 
 Sem `TURSO_DATABASE_URL` ele usa um SQLite em `local.db`. O schema se cria sozinho
-na primeira requisicao — nao existe migration pra rodar nem seed pra popular.
+na primeira requisição. As versões aplicadas ficam em `schema_migrations`.
 
 Pra zerar tudo e comecar do nada de novo: apague o `local.db`.
 

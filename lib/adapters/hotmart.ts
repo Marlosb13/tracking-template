@@ -57,6 +57,8 @@ export function normalizeHotmart(payload: any): NormalizedOrder | null {
     currency: pick(purchase, ['price.currency_value', 'price.currency_code']) ?? 'BRL',
     grossCents: gross,
     netCents: net,
+    financialsKnown: producer?.value != null,
+    grossKnown: pick(purchase, ['price.value', 'full_price.value', 'original_offer_price.value']) != null,
 
     createdAt: toIso(pick(purchase, ['order_date']) ?? pick(payload, ['creation_date'])),
     approvedAt: status === 'paid' ? toIso(pick(purchase, ['approved_date', 'order_date'])) : null,

@@ -56,6 +56,7 @@ function filterSql(filters: Filters, args: any[]): string {
 
 const APPROVED = `o.status = 'paid'`
 const PENDING = `o.status = 'waiting_payment'`
+const SALE_DATE = `COALESCE(o.approved_at, o.created_at)`
 
 export type Summary = Awaited<ReturnType<typeof getSummary>>
 
@@ -63,11 +64,12 @@ export async function getSummary(dashboardId: string, range: Range, filters: Fil
   await initDb()
 
   const args: any[] = [dashboardId, range.fromUtc, range.toUtc]
-  const where = `o.dashboard_id = ? AND o.created_at BETWEEN ? AND ?` + filterSql(filters, args)
+  const where = `o.dashboard_id = ? AND ${SALE_DATE} BETWEEN ? AND ?` + filterSql(filters, args)
 
   const totals = await db.execute({
     sql: `SELECT
             COUNT(*)                                                    AS total,
+            SUM(CASE WHEN ${APPROVED} AND o.financials_known = 0 THEN 1 ELSE 0 END) AS unknown_financials,
             SUM(CASE WHEN ${APPROVED} THEN 1 ELSE 0 END)                AS approved,
             SUM(CASE WHEN ${PENDING} THEN 1 ELSE 0 END)                 AS pending,
             SUM(CASE WHEN o.status = 'refused' THEN 1 ELSE 0 END)       AS refused,
@@ -98,7 +100,7 @@ export async function getSummary(dashboardId: string, range: Range, filters: Fil
     spendArgs.push(filters.trafficSource)
   }
   const spendRow = await db.execute({
-    sql: `SELECT SUM(spend_cents) AS spend, SUM(impressions) AS impressions, SUM(clicks) AS clicks, SUM(link_clicks) AS link_clicks
+    sql: `SELECT COUNT(*) AS data_rows, MAX(updated_at) AS last_sync, SUM(spend_cents) AS spend, SUM(impressions) AS impressions, SUM(clicks) AS clicks, SUM(link_clicks) AS link_clicks
           FROM ad_insights WHERE ${spendWhere}`,
     args: spendArgs,
   })
@@ -122,7 +124,7 @@ export async function getSummary(dashboardId: string, range: Range, filters: Fil
 
   // Series por hora e por dia, ja no fuso do dashboard.
   const byDay = await db.execute({
-    sql: `SELECT substr(o.created_at, 1, 10) AS day,
+    sql: `SELECT date(${SALE_DATE}, '${(new Date(range.fromLocal + 'T00:00:00Z').getTime() - new Date(range.fromUtc).getTime()) / 3600000} hours') AS day,
                  SUM(CASE WHEN ${APPROVED} THEN o.net_cents ELSE 0 END) AS revenue,
                  SUM(CASE WHEN ${APPROVED} THEN 1 ELSE 0 END)           AS sales
           FROM orders o WHERE ${where} GROUP BY day ORDER BY day`,
@@ -130,7 +132,7 @@ export async function getSummary(dashboardId: string, range: Range, filters: Fil
   })
 
   const byHour = await db.execute({
-    sql: `SELECT CAST(substr(o.created_at, 12, 2) AS INTEGER) AS hour,
+    sql: `SELECT CAST(strftime('%H', ${SALE_DATE}, '${(new Date(range.fromLocal + 'T00:00:00Z').getTime() - new Date(range.fromUtc).getTime()) / 3600000} hours') AS INTEGER) AS hour,
                  SUM(CASE WHEN ${APPROVED} THEN o.net_cents ELSE 0 END) AS revenue,
                  SUM(CASE WHEN ${APPROVED} THEN 1 ELSE 0 END)           AS sales
           FROM orders o WHERE ${where} GROUP BY hour ORDER BY hour`,
@@ -140,7 +142,7 @@ export async function getSummary(dashboardId: string, range: Range, filters: Fil
   const byProduct = await db.execute({
     sql: `SELECT i.product_name AS name,
                  COUNT(DISTINCT o.id)                                     AS sales,
-                 SUM(CASE WHEN ${APPROVED} THEN o.net_cents ELSE 0 END)   AS revenue
+                 SUM(CASE WHEN ${APPROVED} THEN o.net_cents * (i.price_cents * i.quantity * 1.0) / NULLIF((SELECT SUM(j.price_cents * j.quantity) FROM order_items j WHERE j.order_id = o.id), 0) ELSE 0 END) AS revenue
           FROM orders o JOIN order_items i ON i.order_id = o.id
           WHERE ${where} AND ${APPROVED}
           GROUP BY i.product_name ORDER BY revenue DESC LIMIT 20`,
@@ -169,17 +171,20 @@ export async function getSummary(dashboardId: string, range: Range, filters: Fil
   })
 
   return {
-    revenue: netRevenue,
+    hasSpendData: Number(s.data_rows) > 0,
+    lastSync: s.last_sync || null,
+    revenue: n(t.unknown_financials) ? null : netRevenue,
+    unknownFinancials: n(t.unknown_financials),
     grossRevenue: n(t.gross_revenue),
     pendingRevenue: n(t.pending_revenue),
-    spend,
+    spend: Number(s.data_rows) ? spend : null,
     cost,
     tax,
     otherExpenses,
-    profit,
-    roas: spend > 0 ? netRevenue / spend : null,
-    roi: spend > 0 ? profit / spend : null,
-    margin: netRevenue > 0 ? profit / netRevenue : null,
+    profit: n(t.unknown_financials) || !Number(s.data_rows) ? null : profit,
+    roas: spend > 0 && !n(t.unknown_financials) ? netRevenue / spend : null,
+    roi: spend > 0 && !n(t.unknown_financials) ? profit / spend : null,
+    margin: netRevenue > 0 && !n(t.unknown_financials) ? profit / netRevenue : null,
     ordersCount: {
       total,
       approved,
@@ -191,7 +196,7 @@ export async function getSummary(dashboardId: string, range: Range, filters: Fil
       creditCardApproved: n(t.cc_approved),
       creditCardRefused: n(t.cc_refused),
     },
-    averageTicket: approved > 0 ? Math.round(netRevenue / approved) : 0,
+    averageTicket: approved > 0 && !n(t.unknown_financials) ? Math.round(netRevenue / approved) : null,
     cpa: approved > 0 && spend > 0 ? Math.round(spend / approved) : null,
     cpt: total > 0 && spend > 0 ? Math.round(spend / total) : null,
     cpp: pending > 0 && spend > 0 ? Math.round(spend / pending) : null,
@@ -203,11 +208,11 @@ export async function getSummary(dashboardId: string, range: Range, filters: Fil
     cpc: n(s.clicks) > 0 ? Math.round(spend / n(s.clicks)) : null,
     ctr: n(s.impressions) > 0 ? n(s.clicks) / n(s.impressions) : null,
     untrackedApproved: n((untracked.rows[0] as any)?.c),
-    byDay: byDay.rows as any[],
-    byHour: byHour.rows as any[],
-    byProduct: byProduct.rows as any[],
-    byPaymentMethod: byPaymentMethod.rows as any[],
-    bySource: bySource.rows as any[],
+    byDay: byDay.rows.map(r => ({ ...r, revenue: n(t.unknown_financials) ? null : r.revenue })) as any[],
+    byHour: byHour.rows.map(r => ({ ...r, revenue: n(t.unknown_financials) ? null : r.revenue })) as any[],
+    byProduct: byProduct.rows.map(r => ({ ...r, revenue: n(t.unknown_financials) ? null : r.revenue })) as any[],
+    byPaymentMethod: byPaymentMethod.rows.map(r => ({ ...r, revenue: n(t.unknown_financials) ? null : r.revenue })) as any[],
+    bySource: bySource.rows.map(r => ({ ...r, revenue: n(t.unknown_financials) ? null : r.revenue })) as any[],
   }
 }
 
@@ -227,7 +232,7 @@ export async function getByUtm(dashboardId: string, groupBy: string, range: Rang
   if (!col) throw new Error('Agrupamento invalido')
 
   const args: any[] = [dashboardId, range.fromUtc, range.toUtc]
-  const where = `o.dashboard_id = ? AND o.created_at BETWEEN ? AND ?` + filterSql(filters, args)
+  const where = `o.dashboard_id = ? AND ${SALE_DATE} BETWEEN ? AND ?` + filterSql(filters, args)
 
   // O id do objeto de anuncio sai do proprio valor da UTM ("nome|id"),
   // e e por ele que casamos com o gasto.
@@ -238,6 +243,7 @@ export async function getByUtm(dashboardId: string, groupBy: string, range: Rang
     sql: `SELECT COALESCE(${col}, '(vazio)') AS value,
                  ${idExpr} AS object_id,
                  COUNT(*)                                                  AS total_orders,
+                 SUM(CASE WHEN ${APPROVED} AND o.financials_known = 0 THEN 1 ELSE 0 END) AS unknown_financials,
                  SUM(CASE WHEN ${APPROVED} THEN 1 ELSE 0 END)              AS approved_orders,
                  SUM(CASE WHEN ${PENDING} THEN 1 ELSE 0 END)               AS pending_orders,
                  SUM(CASE WHEN o.status = 'refunded' THEN 1 ELSE 0 END)    AS refunded_orders,
@@ -271,11 +277,12 @@ export async function getAdObjects(dashboardId: string, level: 'account' | 'camp
   const col = { account: 'account_id', campaign: 'campaign_id', adset: 'adset_id', ad: 'ad_id' }[level]
 
   const args: any[] = [dashboardId, range.fromUtc, range.toUtc]
-  const where = `o.dashboard_id = ? AND o.created_at BETWEEN ? AND ?` + filterSql(filters, args)
+  const where = `o.dashboard_id = ? AND ${SALE_DATE} BETWEEN ? AND ?` + filterSql(filters, args)
 
   const salesRows = await db.execute({
     sql: `SELECT o.${col} AS object_id,
                  COUNT(*)                                                  AS total_orders,
+                 SUM(CASE WHEN ${APPROVED} AND o.financials_known = 0 THEN 1 ELSE 0 END) AS unknown_financials,
                  SUM(CASE WHEN ${APPROVED} THEN 1 ELSE 0 END)              AS approved_orders,
                  SUM(CASE WHEN ${PENDING} THEN 1 ELSE 0 END)               AS pending_orders,
                  SUM(CASE WHEN o.status = 'refunded' THEN 1 ELSE 0 END)    AS refunded_orders,
@@ -326,7 +333,7 @@ export async function getAdObjects(dashboardId: string, level: 'account' | 'camp
         ...decorate(salesBy.get(id) ?? {}, spendBy.get(id)),
       }
     })
-    .sort((a, b) => b.profit - a.profit)
+    .sort((a, b) => (b.profit ?? -Infinity) - (a.profit ?? -Infinity))
 }
 
 function decorate(sales: any, spendRow: any) {
@@ -344,22 +351,22 @@ function decorate(sales: any, spendRow: any) {
   return {
     value: sales.value ?? null,
     objectId: sales.object_id ?? null,
-    revenue,
+    revenue: n(sales.unknown_financials) ? null : revenue,
     grossRevenue: n(sales.gross_revenue),
-    spend,
+    spend: spendRow ? spend : null,
     cost,
-    profit,
+    profit: n(sales.unknown_financials) || !spendRow ? null : profit,
     totalOrders: total,
     approvedOrders: approved,
     pendingOrders: pending,
     refundedOrders: n(sales.refunded_orders),
-    roas: spend > 0 ? revenue / spend : null,
-    roi: spend > 0 ? profit / spend : null,
-    margin: revenue > 0 ? profit / revenue : null,
+    roas: spend > 0 && !n(sales.unknown_financials) ? revenue / spend : null,
+    roi: spend > 0 && !n(sales.unknown_financials) ? profit / spend : null,
+    margin: revenue > 0 && !n(sales.unknown_financials) ? profit / revenue : null,
     cpa: approved > 0 && spend > 0 ? Math.round(spend / approved) : null,
     cpt: total > 0 && spend > 0 ? Math.round(spend / total) : null,
     cpp: pending > 0 && spend > 0 ? Math.round(spend / pending) : null,
-    averageTicket: approved > 0 ? Math.round(revenue / approved) : 0,
+    averageTicket: approved > 0 && !n(sales.unknown_financials) ? Math.round(revenue / approved) : null,
     impressions,
     clicks,
     ctr: impressions > 0 ? clicks / impressions : null,

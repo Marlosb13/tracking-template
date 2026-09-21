@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       args: [
         id, b.dashboardId, b.name || 'Pixel', b.type || 'Meta',
-        b.sendPurchaseType || 'paid_sales_only', b.sendValueType || 'commission', b.sendIpRule || 'ipv6_fallback_ipv4',
+        'paid_sales_only', b.sendValueType || 'commission', b.sendIpRule || 'ipv6_fallback_ipv4',
         b.sendInitiateCheckout ? 1 : 0, b.icDetectionType ?? null, b.icDetectionValue ?? null,
         b.sendLead ? 1 : 0, b.leadDetectionValue ?? null,
         b.sendAddToCart ? 1 : 0, b.atcDetectionType ?? null, b.atcDetectionValue ?? null,
